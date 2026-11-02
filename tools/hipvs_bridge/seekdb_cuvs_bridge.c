@@ -32,10 +32,22 @@ void* seekdb_cuvs_build(const float* base, long n, long dim)
   dset.dl_tensor.shape = ds; dset.dl_tensor.strides = 0; dset.dl_tensor.byte_offset = 0;
 
   if (cuvsCagraIndexParamsCreate(&h->ip) != CUVS_SUCCESS) goto fail_res;
+  /* NN-descent settles well before the 100th round at 250K points, so the
+   * surplus rounds only burn build time; a 2x candidate degree still leaves
+   * the prune step enough neighbours. 128d graphs stay accurate at degree 96
+   * and are cheaper to search, which carries over to the query score. */
   h->ip->build_algo = NN_DESCENT;
-  h->ip->graph_degree = 128;
-  h->ip->intermediate_graph_degree = 256;
-  h->ip->nn_descent_niter = 100;
+  if (dim <= 128) {
+    h->ip->graph_degree = 96;
+    h->ip->intermediate_graph_degree = 192;
+    h->ip->nn_descent_niter = 20;
+  } else {
+    /* 256d sits close to the recall floor, so the baseline graph shape and its
+     * 2x candidate degree are kept and only the refinement budget is cut. */
+    h->ip->graph_degree = 128;
+    h->ip->intermediate_graph_degree = 256;
+    h->ip->nn_descent_niter = 30;
+  }
   if (cuvsCagraIndexCreate(&h->idx)      != CUVS_SUCCESS) goto fail_ip;
   if (cuvsCagraBuild(h->res, h->ip, &dset, h->idx) != CUVS_SUCCESS) goto fail_idx;
   h->n = n; h->dim = dim;
